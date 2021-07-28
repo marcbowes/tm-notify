@@ -44,4 +44,4 @@ jobs:
         shell: bash
         run: |
           zip lambda.zip target/release/tm-notify
-          aws s3api put-object --key release/latest.zip --bucket TmNotifyTmNotifyAssetsD39DB889
+          aws s3api put-object --key release/latest.zip --bucket cdkstack-tmnotifytmnotifyassetsd39db889-1eao6gzvjr848
