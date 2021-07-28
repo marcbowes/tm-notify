@@ -12,12 +12,16 @@ use lambda_runtime::{handler_fn, Context};
 use serde::Deserialize;
 use serde_json;
 
-use tracing::info;
+use tracing::{info, Level};
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[tokio::main]
 async fn main() -> StdResult<(), LambdaError> {
     let func = handler_fn(func);
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .finish()
+        .try_init()?;
     lambda_runtime::run(func).await?;
     Ok(())
 }
