@@ -9,7 +9,7 @@ env:
 
 jobs:
   build:
-    name: Build and Test
+    name: Release the kraken
     runs-on: ${{ matrix.os }}
     strategy: 
       matrix : 
@@ -24,16 +24,16 @@ jobs:
           toolchain: stable
           target: x86_64-unknown-linux-musl
           override: true
+      - name: Cargo Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose
       - name: Cargo Build
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release
-      # - name: Cargo Test
-      #   uses: actions-rs/cargo@v1
-      #   with:
-      #     command: test
-      #     args: --verbose
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
