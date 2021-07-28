@@ -34,14 +34,14 @@ jobs:
         with:
           command: build
           args: --release
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-west-2
-    - name: Upload Lambda function
-      shell: bash
-      run: |
-        zip lambda.zip target/x86_64-unknown-linux-musl/release/tm-notify
-        aws s3api put-object --key release/latest.zip --bucket TmNotifyTmNotifyAssetsD39DB889
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+      - name: Upload Lambda function
+        shell: bash
+        run: |
+          zip lambda.zip target/x86_64-unknown-linux-musl/release/tm-notify
+          aws s3api put-object --key release/latest.zip --bucket TmNotifyTmNotifyAssetsD39DB889
