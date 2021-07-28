@@ -15,3 +15,4 @@ serde_json = "1"
 
 tracing = "0.1"
 tracing-subscriber = "0.2"
+lambda_runtime = "0.3.0"

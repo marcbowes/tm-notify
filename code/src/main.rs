@@ -1,3 +1,4 @@
+use std::result::Result as StdResult;
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -6,28 +7,34 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use argh::FromArgs;
+use lambda_runtime::Error as LambdaError;
+use lambda_runtime::{handler_fn, Context};
 use serde::{Deserialize, Serialize};
 use serde_json;
 
 use tracing::info;
 
-#[derive(FromArgs)]
-/// Monitor a game and send updates to a slack room
-struct Opts {
-    #[argh(option)]
-    /// game to monitor
-    game: String,
-    #[argh(option)]
-    /// slack room to beep boop in
-    webhook: String,
+#[tokio::main]
+async fn main() -> StdResult<(), LambdaError> {
+    let func = handler_fn(func);
+    tracing_subscriber::fmt::init();
+    lambda_runtime::run(func).await?;
+    Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let opts = argh::from_env();
-    tracing_subscriber::fmt::init();
-    run(opts).await
+async fn func(_: serde_json::Value, _: Context) -> StdResult<serde_json::Value, LambdaError> {
+    match run().await {
+        Ok(()) => Ok(serde_json::Value::Null),
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// Monitor a game and send updates to a slack room
+struct Opts {
+    /// game to monitor
+    game: String,
+    /// slack room to beep boop in
+    webhook: String,
 }
 
 #[derive(PartialEq, Eq, Deserialize)]
@@ -47,8 +54,13 @@ struct ActionRequired {
     faction: Option<String>,
 }
 
-async fn run(opts: Opts) -> Result<()> {
+async fn run() -> Result<()> {
     info!("running");
+    // FIXME: Inject somehow.
+    let opts = Opts {
+        game: "terramysticians20210714".into(),
+        webhook: "https://hooks.slack.com/workflows/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".into(),
+    };
 
     info!("requesting latest game information");
     let client = reqwest::Client::new();
