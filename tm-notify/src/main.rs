@@ -9,7 +9,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use lambda_runtime::Error as LambdaError;
 use lambda_runtime::{handler_fn, Context};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json;
 
 use tracing::info;

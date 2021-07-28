@@ -13,10 +13,10 @@ export class TmNotify extends core.Construct {
         const ghUser = new iam.User(this, "TmGithubUser");
         bucket.grantWrite(ghUser);
 
-        // const handler = new lambda.Function(this, "TmNotify", {
-        //     runtime: lambda.Runtime.PROVIDED_AL2,
-        //     handler: "custom.runtime",
-        //     code: lambda.Code.fromBucket(bucket, "release/latest.zip")
-        // });
+        const handler = new lambda.Function(this, "TmNotify", {
+            runtime: lambda.Runtime.PROVIDED_AL2,
+            handler: "custom.runtime",
+            code: lambda.Code.fromBucket(bucket, "release/latest.zip")
+        });
     }
 }
