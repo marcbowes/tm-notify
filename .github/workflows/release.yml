@@ -43,5 +43,6 @@ jobs:
       - name: Upload Lambda function
         shell: bash
         run: |
-          zip lambda.zip target/release/tm-notify
+          cp target/release/tm-notify bootstrap
+          zip lambda.zip bootstrap
           aws s3api put-object --key release/latest.zip --bucket cdkstack-tmnotifytmnotifyassetsd39db889-1eao6gzvjr848 --body lambda.zip
