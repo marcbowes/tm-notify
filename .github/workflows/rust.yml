@@ -21,14 +21,14 @@ jobs:
       - name: Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
           toolchain: stable
+          target: x86_64-unknown-linux-musl
           override: true
-      - name: Cargo Build 
+      - name: Cargo Build
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --verbose
+          args: --release
       # - name: Cargo Test
       #   uses: actions-rs/cargo@v1
       #   with:
