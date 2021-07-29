@@ -8,15 +8,27 @@ export class TmNotify extends core.Construct {
         super(scope, id);
 
         const bucket = new s3.Bucket(this, "TmNotifyAssets");
+        const artifactKey = "release/latest.zip";
 
-        // This user will be used to publish artifacts from Github actions.
-        const ghUser = new iam.User(this, "TmGithubUser");
+        // This user will be used to update the Lambda function via Github actions.
+        const ghUser = new iam.User(this, "TmNotifyGithubUser");
         bucket.grantWrite(ghUser);
 
-        const handler = new lambda.Function(this, "TmNotify", {
+        const lambdaFunction = new lambda.Function(this, "TmNotifyHandler", {
             runtime: lambda.Runtime.PROVIDED_AL2,
             handler: "custom.runtime",
-            code: lambda.Code.fromBucket(bucket, "release/latest.zip")
+            code: lambda.Code.fromBucket(bucket, artifactKey)
+        });
+
+        new iam.Policy(this, "TmNotifyGithubUserUpdateFunctionPolicy", {
+            statements: [
+                new iam.PolicyStatement({
+                    effect: iam.Effect.ALLOW,
+                    resources: [lambdaFunction.functionArn],
+                    actions: ["lambda:UpdateFunctionCode"]
+                })
+            ],
+            users: [ghUser]
         });
     }
 }

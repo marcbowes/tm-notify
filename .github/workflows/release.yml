@@ -40,9 +40,9 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
-      - name: Upload Lambda function
+      - name: Update Lambda
         shell: bash
         run: |
           cp target/release/tm-notify bootstrap
           zip lambda.zip bootstrap
-          aws s3api put-object --key release/latest.zip --bucket cdkstack-tmnotifytmnotifyassetsd39db889-1eao6gzvjr848 --body lambda.zip
+          aws lambda update-function-code --function-name CdkStack-TmNotifyTmNotifyHandler48495718-lhKY2z84toAf --zip-file fileb://lambda.zip
