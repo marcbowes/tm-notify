@@ -1,12 +1,10 @@
+use std::collections::HashMap;
 use std::result::Result as StdResult;
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-    io::{Read, Write},
-    path::Path,
-};
 
 use anyhow::{anyhow, Result};
+use aws_sdk_s3::error::GetObjectErrorKind;
+use aws_sdk_s3::{ByteStream, Client, Config};
+use bytes::Bytes;
 use lambda_runtime::Error as LambdaError;
 use lambda_runtime::{handler_fn, Context};
 use serde::Deserialize;
@@ -39,6 +37,8 @@ struct Opts {
     game: String,
     /// slack room to beep boop in
     webhook: String,
+    /// bucket for state
+    bucket: String,
 }
 
 #[derive(PartialEq, Eq, Deserialize)]
@@ -64,6 +64,7 @@ async fn run() -> Result<()> {
     let opts = Opts {
         game: "terramysticians20210714".into(),
         webhook: "https://hooks.slack.com/workflows/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".into(),
+        bucket: "cdkstack-tmnotifytmnotifyvara98b5e04-1i9nxaq6v6ckn".into()
     };
 
     info!("requesting latest game information");
@@ -78,29 +79,8 @@ async fn run() -> Result<()> {
     let gamedata = resp.bytes().await?;
     let game: ViewGameResponse = serde_json::from_slice(gamedata.as_ref())?;
 
-    let cache_dir = Path::new("/tmp").join("tm-notify");
-    let cache_gamefile = cache_dir.join(format!("{}.json", &opts.game[..]));
-
-    if cache_gamefile.exists() {
-        info!(
-            file = cache_gamefile.to_str().unwrap_or("?"),
-            "loading previous gamefile"
-        );
-        let mut buf = vec![];
-        let mut file = File::open(&cache_gamefile)?;
-        file.read_to_end(&mut buf)?;
-
-        // Note: I found comparing bytes to be inadequate, and so we work with
-        // the deserialized version. I'm not sure if list ordering is stable.
-        let cached_game: ViewGameResponse = serde_json::from_slice(&buf[..])?;
-        if cached_game == game {
-            info!(game = %opts.game, "game has not been updated");
-            return Ok(());
-        } else {
-            info!(game = %opts.game, "game has been updated");
-        }
-    } else {
-        info!("no previous gamefile");
+    if !is_game_changed(&game, &opts).await? {
+        return Ok(());
     }
 
     let message = if let Some(ref action_required) = game.action_required {
@@ -118,24 +98,73 @@ async fn run() -> Result<()> {
         return Ok(());
     };
 
-    notify(message, opts.webhook).await?;
-
-    info!(
-        file = cache_gamefile.to_str().unwrap_or("?"),
-        "saving gamefile"
-    );
-    fs::create_dir_all(cache_dir)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&cache_gamefile)?;
-    file.write_all(gamedata.as_ref())?;
+    notify(message, &opts.webhook).await?;
+    upload_gamefile(gamedata, &opts).await?;
 
     Ok(())
 }
 
-async fn notify(message: String, webhook: String) -> Result<()> {
+async fn is_game_changed(game: &ViewGameResponse, opts: &Opts) -> Result<bool> {
+    let config = Config::builder().build();
+    let client = Client::from_conf(config);
+    let resp = client
+        .get_object()
+        .bucket(&opts.bucket)
+        .key(format!("{}/{}.json", "games", opts.game))
+        .send()
+        .await;
+
+    let body = match resp {
+        Ok(output) => output.body.collect().await?.into_bytes(),
+        Err(err) => match err {
+            // If the key doesn't exist, assume this is a new game.
+            aws_sdk_s3::SdkError::ServiceError { err, .. } => {
+                if let GetObjectErrorKind::NoSuchKey(it) = err.kind {
+                    info!(
+                        %it,
+                        "no such key, assuming this is a new game"
+                    );
+                    return Ok(true);
+                } else {
+                    return Err(err)?;
+                }
+            }
+            _ => Err(err)?,
+        },
+    };
+
+    // Note: I found comparing bytes to be inadequate, and so we work with
+    // the deserialized version. I'm not sure if list ordering is stable.
+    let cached_game: ViewGameResponse = serde_json::from_slice(&body[..])?;
+    if &cached_game == game {
+        info!(game = %opts.game, "game has not been updated");
+        return Ok(false);
+    } else {
+        info!(game = %opts.game, "game has been updated");
+        return Ok(true);
+    }
+}
+
+async fn upload_gamefile(gamedata: Bytes, opts: &Opts) -> Result<()> {
+    info!("saving gamefile");
+
+    let config = Config::builder().build();
+    let client = Client::from_conf(config);
+    let _ = client
+        .put_object()
+        .bucket(&opts.bucket)
+        .key(format!("{}/{}.json", "games", opts.game))
+        .body(ByteStream::from(gamedata))
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+async fn notify(message: String, webhook: &str) -> Result<()> {
+    info!(%message, "WOULD NOTIFY BUT WONT");
+    return Ok(());
+
     let mut notification = HashMap::new();
     notification.insert("message", message);
     let client = reqwest::Client::new();
