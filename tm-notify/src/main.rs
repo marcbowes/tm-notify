@@ -162,9 +162,6 @@ async fn upload_gamefile(gamedata: Bytes, opts: &Opts) -> Result<()> {
 }
 
 async fn notify(message: String, webhook: &str) -> Result<()> {
-    info!(%message, "WOULD NOTIFY BUT WONT");
-    return Ok(());
-
     let mut notification = HashMap::new();
     notification.insert("message", message);
     let client = reqwest::Client::new();
