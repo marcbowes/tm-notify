@@ -1,0 +1,34 @@
+#+TITLE: Readme
+
+** About
+
+This is a silly little application that automates bugging people to take their
+turn on Snellman.
+
+** How it works
+
+The way it works is pretty simple. I'll describe it in two pieces. First, the
+app. Then, the infrastructure.
+
+The application uses the =view-game= API to fetch game information. This is the
+same API that the Javascript application on terra.snellman.net uses to fetch
+game data. Fetches are cached, and if nothing has changed, then the program
+simply exits.
+
+If the game /has/ changed, then the program tries to figure out an appropriate
+notification. There are two types: either a player must take a full turn, or
+some between-turn actions must be taken (such as leech). Either way, a
+notification is built and sent to a Slack Webhook.
+
+The infrastructure is equally straightforward. The code runs on Lambda,
+triggered every 5 minutes via an event. The cache is in S3, and maintained as
+part of the invoke.
+
+Deployments are special. Github Actions are used to build a statically linked
+binary. This is zipped up, and then the aws-cli is used to update the function.
+This means that git pushes are all that's needed to update.
+
+The resources (Lambda function, S3 bucket, events, roles and users) are managed
+by some CDK code. This is slow moving, and so I run it as needed from my
+personal machine. This means there is no need for an "admin" user; so
+permissions are pretty straightforward.

@@ -2,6 +2,8 @@ import * as core from "@aws-cdk/core";
 import * as s3 from '@aws-cdk/aws-s3'
 import * as lambda from '@aws-cdk/aws-lambda'
 import * as iam from '@aws-cdk/aws-iam'
+import * as events from '@aws-cdk/aws-events';
+import * as targets from '@aws-cdk/aws-events-targets';
 
 export class TmNotify extends core.Construct {
     constructor(scope: core.Construct, id: string) {
@@ -12,6 +14,12 @@ export class TmNotify extends core.Construct {
             handler: "custom.runtime",
             code: lambda.Code.fromAsset("dummy-lambda-code.zip")
         });
+
+        const rule = new events.Rule(this, 'Rule', {
+            schedule: events.Schedule.expression('rate(5 minutes)')
+        });
+
+        rule.addTarget(new targets.LambdaFunction(lambdaFunction));
 
         // This user will be used to update the Lambda function via Github
         // actions. The intial "code from asset" is simply because we *don't*
