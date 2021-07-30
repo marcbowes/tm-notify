@@ -36,7 +36,7 @@ struct Opts {
     /// game to monitor
     game: String,
     /// slack room to beep boop in
-    webhook: String,
+    webhook: Option<String>,
     /// bucket for state
     bucket: String,
 }
@@ -58,13 +58,16 @@ struct ActionRequired {
     faction: Option<String>,
 }
 
+/// The webhook is a secret and is injected at build time.
+const WEBHOOK: Option<&'static str> = std::option_env!("WEBHOOK");
+
 async fn run() -> Result<()> {
     info!("running");
     // FIXME: Inject somehow.
     let opts = Opts {
         game: "terramysticians20210714".into(),
-        webhook: "https://hooks.slack.com/workflows/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".into(),
-        bucket: "cdkstack-tmnotifytmnotifyvara98b5e04-1i9nxaq6v6ckn".into()
+        webhook: WEBHOOK.map(|url| url.into()),
+        bucket: "cdkstack-tmnotifytmnotifyvara98b5e04-1i9nxaq6v6ckn".into(),
     };
 
     info!("requesting latest game information");
@@ -98,7 +101,11 @@ async fn run() -> Result<()> {
         return Ok(());
     };
 
-    notify(message, &opts.webhook).await?;
+    if let Some(url) = &opts.webhook {
+        notify(message, url).await?;
+    } else {
+        info!("no webhook, not sending a notification");
+    }
     upload_gamefile(gamedata, &opts).await?;
 
     Ok(())

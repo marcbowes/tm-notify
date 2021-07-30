@@ -34,6 +34,8 @@ jobs:
         with:
           command: build
           args: --release
+        env:
+          WEBHOOK: ${{ secrets.WEBHOOK }}
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
