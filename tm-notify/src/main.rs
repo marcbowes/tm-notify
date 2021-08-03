@@ -10,7 +10,7 @@ use lambda_runtime::{handler_fn, Context};
 use serde::Deserialize;
 use serde_json;
 
-use tracing::{info, Level};
+use tracing::{info, instrument, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[tokio::main]
@@ -32,9 +32,8 @@ async fn func(_: serde_json::Value, _: Context) -> StdResult<serde_json::Value, 
 }
 
 /// Monitor a game and send updates to a slack room
+#[derive(Debug)]
 struct Opts {
-    /// game to monitor
-    game: String,
     /// slack room to beep boop in
     webhook: Option<String>,
     /// bucket for state
@@ -60,19 +59,29 @@ struct ActionRequired {
 
 /// The webhook is a secret and is injected at build time.
 const WEBHOOK: Option<&'static str> = std::option_env!("WEBHOOK");
+/// The list of games to monitor. New games require a new build!
+const GAME_IDS: &[&'static str] = &["terramysticians20210714", "terramysticians20210803"];
 
 async fn run() -> Result<()> {
     info!("running");
     // FIXME: Inject somehow.
     let opts = Opts {
-        game: "terramysticians20210714".into(),
         webhook: WEBHOOK.map(|url| url.into()),
         bucket: "cdkstack-tmnotifytmnotifyvara98b5e04-1i9nxaq6v6ckn".into(),
     };
 
+    for id in GAME_IDS {
+        process(&id, &opts).await?;
+    }
+
+    Ok(())
+}
+
+#[instrument]
+async fn process(game_id: &str, opts: &Opts) -> Result<()> {
     info!("requesting latest game information");
     let client = reqwest::Client::new();
-    let params = [("game", &opts.game[..])];
+    let params = [("game", game_id)];
     let resp = client
         .post("https://terra.snellman.net/app/view-game/")
         .form(&params)
@@ -82,7 +91,7 @@ async fn run() -> Result<()> {
     let gamedata = resp.bytes().await?;
     let game: ViewGameResponse = serde_json::from_slice(gamedata.as_ref())?;
 
-    if !is_game_changed(&game, &opts).await? {
+    if !is_game_changed(game_id, &game, &opts).await? {
         return Ok(());
     }
 
@@ -106,18 +115,18 @@ async fn run() -> Result<()> {
     } else {
         info!("no webhook, not sending a notification");
     }
-    upload_gamefile(gamedata, &opts).await?;
+    upload_gamefile(game_id, gamedata, &opts).await?;
 
     Ok(())
 }
 
-async fn is_game_changed(game: &ViewGameResponse, opts: &Opts) -> Result<bool> {
+async fn is_game_changed(game_id: &str, game: &ViewGameResponse, opts: &Opts) -> Result<bool> {
     let config = Config::builder().build();
     let client = Client::from_conf(config);
     let resp = client
         .get_object()
         .bucket(&opts.bucket)
-        .key(format!("{}/{}.json", "games", opts.game))
+        .key(format!("{}/{}.json", "games", game_id))
         .send()
         .await;
 
@@ -144,15 +153,15 @@ async fn is_game_changed(game: &ViewGameResponse, opts: &Opts) -> Result<bool> {
     // the deserialized version. I'm not sure if list ordering is stable.
     let cached_game: ViewGameResponse = serde_json::from_slice(&body[..])?;
     if &cached_game == game {
-        info!(game = %opts.game, "game has not been updated");
+        info!("game has not been updated");
         return Ok(false);
     } else {
-        info!(game = %opts.game, "game has been updated");
+        info!("game has been updated");
         return Ok(true);
     }
 }
 
-async fn upload_gamefile(gamedata: Bytes, opts: &Opts) -> Result<()> {
+async fn upload_gamefile(game_id: &str, gamedata: Bytes, opts: &Opts) -> Result<()> {
     info!("saving gamefile");
 
     let config = Config::builder().build();
@@ -160,7 +169,7 @@ async fn upload_gamefile(gamedata: Bytes, opts: &Opts) -> Result<()> {
     let _ = client
         .put_object()
         .bucket(&opts.bucket)
-        .key(format!("{}/{}.json", "games", opts.game))
+        .key(format!("{}/{}.json", "games", game_id))
         .body(ByteStream::from(gamedata))
         .send()
         .await?;
