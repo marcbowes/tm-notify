@@ -89,7 +89,7 @@ async fn process(game_id: &str, opts: &Opts) -> Result<()> {
 
     if let Some(message) = notification_message(&game)? {
         if let Some(url) = &opts.webhook {
-            notify(message, url).await?;
+            notify(game_id, message, url).await?;
         } else {
             info!("no webhook, not sending a notification");
         }
@@ -194,9 +194,10 @@ async fn upload_gamefile(game_id: &str, gamedata: Bytes, opts: &Opts) -> Result<
     Ok(())
 }
 
-async fn notify(message: String, webhook: &str) -> Result<()> {
+async fn notify(game_id: &str, message: String, webhook: &str) -> Result<()> {
     let mut notification = HashMap::new();
-    notification.insert("message", message);
+    notification.insert("game_id", game_id);
+    notification.insert("message", &message[..]);
     let client = reqwest::Client::new();
     let resp = client.post(webhook).json(&notification).send().await?;
 
