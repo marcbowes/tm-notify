@@ -204,6 +204,7 @@ async fn notify(game_id: &str, message: String, webhook: &str) -> Result<()> {
     if !resp.status().is_success() {
         Err(anyhow!("webhook failed with {}", resp.status().as_u16()))
     } else {
+        info!(%message, "notification sent");
         Ok(())
     }
 }
