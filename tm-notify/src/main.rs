@@ -40,7 +40,7 @@ struct Opts {
     bucket: String,
 }
 
-#[derive(PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 struct ViewGameResponse {
     active_faction: Option<String>,
     // TODO: Is this nullable? If there are no actions required or if the game
@@ -48,13 +48,15 @@ struct ViewGameResponse {
     action_required: Option<Vec<ActionRequired>>,
 }
 
-#[derive(PartialEq, Eq, Deserialize)]
-// TODO: I'm not sure what the possible fields and values are, so for now
-// everything I know _might_ be required is optional!
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+// There are different types of actions required. For example, during faction
+// selection, `faction` is missing but `player` is present. Might be nice to
+// model this as an enum. For now, we use Optionals.
 struct ActionRequired {
     from_faction: Option<String>,
     r#type: Option<String>,
     faction: Option<String>,
+    player: Option<String>,
 }
 
 /// The webhook is a secret and is injected at build time.
@@ -79,6 +81,25 @@ async fn run() -> Result<()> {
 
 #[instrument]
 async fn process(game_id: &str, opts: &Opts) -> Result<()> {
+    let (gamedata, game) = load_game(game_id).await?;
+
+    if !is_game_changed(game_id, &game, &opts).await? {
+        return Ok(());
+    }
+
+    if let Some(message) = notification_message(&game)? {
+        if let Some(url) = &opts.webhook {
+            notify(message, url).await?;
+        } else {
+            info!("no webhook, not sending a notification");
+        }
+    }
+    upload_gamefile(game_id, gamedata, &opts).await?;
+
+    Ok(())
+}
+
+async fn load_game(game_id: &str) -> Result<(Bytes, ViewGameResponse)> {
     info!("requesting latest game information");
     let client = reqwest::Client::new();
     let params = [("game", game_id)];
@@ -89,35 +110,8 @@ async fn process(game_id: &str, opts: &Opts) -> Result<()> {
         .send()
         .await?;
     let gamedata = resp.bytes().await?;
-    let game: ViewGameResponse = serde_json::from_slice(gamedata.as_ref())?;
-
-    if !is_game_changed(game_id, &game, &opts).await? {
-        return Ok(());
-    }
-
-    let message = if let Some(ref action_required) = game.action_required {
-        let is_full_turn = action_required.iter().any(|it| match it.r#type {
-            Some(ref t) if &t[..] == "full" => true,
-            _ => false,
-        });
-
-        match is_full_turn {
-            true => notify_full_turn(&game)?,
-            false => notify_lingering(&action_required),
-        }
-    } else {
-        // I'm assuming no actions required means the game is over.
-        return Ok(());
-    };
-
-    if let Some(url) = &opts.webhook {
-        notify(message, url).await?;
-    } else {
-        info!("no webhook, not sending a notification");
-    }
-    upload_gamefile(game_id, gamedata, &opts).await?;
-
-    Ok(())
+    let view = serde_json::from_slice(gamedata.as_ref())?;
+    Ok((gamedata, view))
 }
 
 async fn is_game_changed(game_id: &str, game: &ViewGameResponse, opts: &Opts) -> Result<bool> {
@@ -159,6 +153,29 @@ async fn is_game_changed(game_id: &str, game: &ViewGameResponse, opts: &Opts) ->
         info!("game has been updated");
         return Ok(true);
     }
+}
+
+fn notification_message(game: &ViewGameResponse) -> Result<Option<String>> {
+    Ok(if let Some(ref action_required) = game.action_required {
+        // To minimize noise, we skip lingering actions (such as leech) if another player must take a full turn.
+        let is_full_turn = action_required.iter().any(|it| match it.r#type {
+            Some(ref t) => match &t[..] {
+                "full" => true,
+                _ => false,
+            },
+            _ => false,
+        });
+
+        let message = match is_full_turn {
+            true => notify_full_turn(&game)?,
+            false => notify_lingering(&action_required),
+        };
+
+        Some(message)
+    } else {
+        // I'm assuming no actions required means the game is over.
+        None
+    })
 }
 
 async fn upload_gamefile(game_id: &str, gamedata: Bytes, opts: &Opts) -> Result<()> {
@@ -204,7 +221,57 @@ fn notify_lingering(actions_required: &[ActionRequired]) -> String {
         if let (Some(faction), Some(r#type)) = (&it.faction, &it.r#type) {
             notify.push(format!("{} may {}", faction, r#type));
         }
+
+        if let (Some(player), Some(r#type)) = (&it.player, &it.r#type) {
+            if r#type == "faction" {
+                notify.push(format!("{} should pick a faction", player));
+            } else {
+                // pretty sure this is dead code.
+                notify.push(format!("{} may {}", player, r#type));
+            }
+        }
     }
 
     notify.join("\n")
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn notify_faction_selection() -> Result<()> {
+        // taken from terramysticians20210803
+        let example = json!({
+            "active_faction": null,
+            "action_required":[
+                {"player_index":"player2","player":"Johanvr","type":"faction"}
+            ]
+        });
+
+        let game: ViewGameResponse = serde_json::from_value(example)?;
+        let message = notification_message(&game)?;
+        assert_eq!("Johanvr should pick a faction", message.as_ref().unwrap());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn notify_full_turn() -> Result<()> {
+        // taken from terramysticians20210714
+        let example = json!({
+            "active_faction": "witches",
+            "action_required":[
+                {"from_faction":"cultists","actual":2,"leech_id":82,"amount":2,"type":"leech","faction":"witches"},
+                {"type":"full","faction":"witches"}
+            ],
+        });
+
+        let game: ViewGameResponse = serde_json::from_value(example)?;
+        let message = notification_message(&game)?;
+        assert_eq!("witches should take their turn", message.as_ref().unwrap());
+
+        Ok(())
+    }
 }
