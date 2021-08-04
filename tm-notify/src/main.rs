@@ -62,7 +62,7 @@ struct ActionRequired {
 /// The webhook is a secret and is injected at build time.
 const WEBHOOK: Option<&'static str> = std::option_env!("WEBHOOK");
 /// The list of games to monitor. New games require a new build!
-const GAME_IDS: &[&'static str] = &["terramysticians20210714", "terramysticians20210803"];
+const GAME_IDS: &[&'static str] = &["terramysticians20210803"];
 
 async fn run() -> Result<()> {
     info!("running");
