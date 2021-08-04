@@ -10,7 +10,7 @@ use lambda_runtime::{handler_fn, Context};
 use serde::Deserialize;
 use serde_json;
 
-use tracing::{info, instrument, Level};
+use tracing::{info, instrument, warn, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[tokio::main]
@@ -42,6 +42,7 @@ struct Opts {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 struct ViewGameResponse {
+    finished: Option<i32>,
     active_faction: Option<String>,
     // TODO: Is this nullable? If there are no actions required or if the game
     // is over, is the value an empty array or missing?
@@ -155,29 +156,6 @@ async fn is_game_changed(game_id: &str, game: &ViewGameResponse, opts: &Opts) ->
     }
 }
 
-fn notification_message(game: &ViewGameResponse) -> Result<Option<String>> {
-    Ok(if let Some(ref action_required) = game.action_required {
-        // To minimize noise, we skip lingering actions (such as leech) if another player must take a full turn.
-        let is_full_turn = action_required.iter().any(|it| match it.r#type {
-            Some(ref t) => match &t[..] {
-                "full" => true,
-                _ => false,
-            },
-            _ => false,
-        });
-
-        let message = match is_full_turn {
-            true => notify_full_turn(&game)?,
-            false => notify_lingering(&action_required),
-        };
-
-        Some(message)
-    } else {
-        // I'm assuming no actions required means the game is over.
-        None
-    })
-}
-
 async fn upload_gamefile(game_id: &str, gamedata: Bytes, opts: &Opts) -> Result<()> {
     info!("saving gamefile");
 
@@ -207,6 +185,33 @@ async fn notify(game_id: &str, message: String, webhook: &str) -> Result<()> {
         info!(%message, "notification sent");
         Ok(())
     }
+}
+
+fn notification_message(game: &ViewGameResponse) -> Result<Option<String>> {
+    if let Some(1) = game.finished {
+        return Ok(Some("gameover".into()));
+    }
+
+    Ok(if let Some(ref action_required) = game.action_required {
+        // To minimize noise, we skip lingering actions (such as leech) if another player must take a full turn.
+        let is_full_turn = action_required.iter().any(|it| match it.r#type {
+            Some(ref t) => match &t[..] {
+                "full" => true,
+                _ => false,
+            },
+            _ => false,
+        });
+
+        let message = match is_full_turn {
+            true => notify_full_turn(&game)?,
+            false => notify_lingering(&action_required),
+        };
+
+        Some(message)
+    } else {
+        warn!("not sure how to build a notification");
+        None
+    })
 }
 
 fn notify_full_turn(game: &ViewGameResponse) -> Result<String> {
@@ -273,6 +278,26 @@ mod test {
         let game: ViewGameResponse = serde_json::from_value(example)?;
         let message = notification_message(&game)?;
         assert_eq!("witches should take their turn", message.as_ref().unwrap());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn notify_finished() -> Result<()> {
+        // taken from terramysticians20210714
+        let example = json!({
+            "finished": 1,
+            "active_faction": "cultists",
+            "action_required": [
+                {
+                    "type": "gameover"
+                }
+            ],
+        });
+
+        let game: ViewGameResponse = serde_json::from_value(example)?;
+        let message = notification_message(&game)?;
+        assert_eq!("gameover", message.as_ref().unwrap());
 
         Ok(())
     }
