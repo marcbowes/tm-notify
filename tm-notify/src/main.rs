@@ -224,9 +224,19 @@ fn notify_full_turn(game: &ViewGameResponse) -> Result<String> {
 fn notify_lingering(actions_required: &[ActionRequired]) -> String {
     let mut notify = vec![];
 
+    // https://github.com/jsnell/terra-mystica/blob/f8a4e19246177f09fa3c1a217bcb3d353f05d761/stc/game.js#L1774
     for it in actions_required {
         if let (Some(faction), Some(r#type)) = (&it.faction, &it.r#type) {
-            notify.push(format!("{} may {}", faction, r#type));
+            let it = match &r#type[..] {
+                "dwelling" => format!("{} should place a dwelling", faction),
+                // "leech" => format!("{} may gain power", faction),
+                // "transform" => format!("{} may transform", faction),
+                "cult" => format!("{} may advance on a cult track", faction),
+                "bonus" => format!("{} should pick a bonus tile", faction),
+                _ => format!("{} may {}", faction, r#type),
+            };
+
+            notify.push(it);
         }
 
         if let (Some(player), Some(r#type)) = (&it.player, &it.r#type) {
