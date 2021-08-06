@@ -49,10 +49,10 @@ struct ViewGameResponse {
     action_required: Option<Vec<ActionRequired>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
 // There are different types of actions required. For example, during faction
 // selection, `faction` is missing but `player` is present. Might be nice to
 // model this as an enum. For now, we use Optionals.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 struct ActionRequired {
     from_faction: Option<String>,
     r#type: Option<String>,
