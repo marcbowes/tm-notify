@@ -47,6 +47,13 @@ struct ViewGameResponse {
     // TODO: Is this nullable? If there are no actions required or if the game
     // is over, is the value an empty array or missing?
     action_required: Option<Vec<ActionRequired>>,
+    factions: Option<HashMap<String, FactionInfo>>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+struct FactionInfo {
+    #[serde(alias = "VP")]
+    vp: i32
 }
 
 // There are different types of actions required. For example, during faction
@@ -187,9 +194,19 @@ async fn notify(game_id: &str, message: String, webhook: &str) -> Result<()> {
     }
 }
 
+fn final_scoring_message(game: &ViewGameResponse) -> String {
+    let mut factions: Vec<_> = (&game.factions.as_ref().unwrap()).iter().collect();
+    factions.sort_by_key(|item| -item.1.vp);
+
+    let scores: Vec<_> = factions.iter().map(|x| format!("{}: {}", x.0, x.1.vp)).collect();
+    let message = format!("Final Scores:\n\n{}", &scores.join("\n"));
+
+    message
+}
+
 fn notification_message(game: &ViewGameResponse) -> Result<Option<String>> {
     if let Some(1) = game.finished {
-        return Ok(Some("gameover".into()));
+        return Ok(Some(final_scoring_message(game)));
     }
 
     Ok(if let Some(ref action_required) = game.action_required {
@@ -294,21 +311,41 @@ mod test {
 
     #[tokio::test]
     async fn notify_finished() -> Result<()> {
-        // taken from terramysticians20210714
+
         let example = json!({
             "finished": 1,
-            "active_faction": "cultists",
+            "active_faction": "halflings",
             "action_required": [
                 {
                     "type": "gameover"
                 }
             ],
+            "factions" : {
+                "engineers" : {
+                    "VP": 126
+                },
+                "halflings" : {
+                    "VP": 157
+                },
+                "mermaids" : {
+                    "VP": 127
+                },
+                "alchemists" : {
+                    "VP": 105
+                },
+            }
         });
 
         let game: ViewGameResponse = serde_json::from_value(example)?;
+
+        // Sanity check on our parsing logic and test data
+        let factions = &game.factions.as_ref().unwrap();
+        assert_eq!(157, factions["halflings"].vp);
+
         let message = notification_message(&game)?;
-        assert_eq!("gameover", message.as_ref().unwrap());
+        assert_eq!("Final Scores:\n\nhalflings: 157\nmermaids: 127\nengineers: 126\nalchemists: 105", message.as_ref().unwrap());
 
         Ok(())
     }
 }
+
