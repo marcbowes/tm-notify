@@ -50,7 +50,7 @@ struct ViewGameResponse {
     factions: Option<HashMap<String, FactionInfo>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 struct FactionInfo {
     #[serde(alias = "VP")]
     vp: i32
@@ -194,19 +194,24 @@ async fn notify(game_id: &str, message: String, webhook: &str) -> Result<()> {
     }
 }
 
-fn final_scoring_message(game: &ViewGameResponse) -> String {
-    let mut factions: Vec<_> = (&game.factions.as_ref().unwrap()).iter().collect();
+fn final_scoring_message(game: &ViewGameResponse) -> Option<String> {
+    let unwrapped = match &game.factions {
+        Some(f) => f.clone(),
+        None => return Some("Game finished, but could not calculate final score due to missing faction info".into())
+    };
+
+    let mut factions: Vec<_> = unwrapped.iter().collect();
     factions.sort_by_key(|item| -item.1.vp);
 
     let scores: Vec<_> = factions.iter().map(|x| format!("{}: {}", x.0, x.1.vp)).collect();
     let message = format!("Final Scores:\n\n{}", &scores.join("\n"));
 
-    message
+    Some(message)
 }
 
 fn notification_message(game: &ViewGameResponse) -> Result<Option<String>> {
     if let Some(1) = game.finished {
-        return Ok(Some(final_scoring_message(game)));
+        return Ok(final_scoring_message(game));
     }
 
     Ok(if let Some(ref action_required) = game.action_required {
