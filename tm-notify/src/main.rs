@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::result::Result as StdResult;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::error::GetObjectErrorKind;
 use aws_sdk_s3::{ByteStream, Client, Config};
 use bytes::Bytes;
+use futures;
+use futures::future::join_all;
 use lambda_runtime::Error as LambdaError;
 use lambda_runtime::{handler_fn, Context};
 use serde::Deserialize;
@@ -53,7 +56,7 @@ struct ViewGameResponse {
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 struct FactionInfo {
     #[serde(alias = "VP")]
-    vp: i32
+    vp: i32,
 }
 
 // There are different types of actions required. For example, during faction
@@ -75,13 +78,22 @@ const GAME_IDS: &[&'static str] = &["terramysticians20210803", "terramysticians2
 async fn run() -> Result<()> {
     info!("running");
     // FIXME: Inject somehow.
-    let opts = Opts {
+    let opts = Arc::new(Opts {
         webhook: WEBHOOK.map(|url| url.into()),
         bucket: "cdkstack-tmnotifytmnotifyvara98b5e04-1i9nxaq6v6ckn".into(),
-    };
+    });
 
-    for id in GAME_IDS {
-        process(&id, &opts).await?;
+    // Process each game in parallel.
+    let tasks = GAME_IDS.iter().map(|&id| {
+        tokio::spawn({
+            let opts = opts.clone();
+            async move { process(id, &opts).await }
+        })
+    });
+
+    // If any fail, blow up.
+    for r in join_all(tasks).await {
+        let _ = r?;
     }
 
     Ok(())
@@ -195,15 +207,22 @@ async fn notify(game_id: &str, message: String, webhook: &str) -> Result<()> {
 }
 
 fn final_scoring_message(game: &ViewGameResponse) -> Option<String> {
-    let unwrapped = match &game.factions {
-        Some(f) => f.clone(),
-        None => return Some("Game finished, but could not calculate final score due to missing faction info".into())
-    };
+    let unwrapped =
+        match &game.factions {
+            Some(f) => f.clone(),
+            None => return Some(
+                "Game finished, but could not calculate final score due to missing faction info"
+                    .into(),
+            ),
+        };
 
     let mut factions: Vec<_> = unwrapped.iter().collect();
     factions.sort_by_key(|item| -item.1.vp);
 
-    let scores: Vec<_> = factions.iter().map(|x| format!("{}: {}", x.0, x.1.vp)).collect();
+    let scores: Vec<_> = factions
+        .iter()
+        .map(|x| format!("{}: {}", x.0, x.1.vp))
+        .collect();
     let message = format!("Final Scores:\n\n{}", &scores.join("\n"));
 
     Some(message)
@@ -316,7 +335,6 @@ mod test {
 
     #[tokio::test]
     async fn notify_finished() -> Result<()> {
-
         let example = json!({
             "finished": 1,
             "active_faction": "halflings",
@@ -348,9 +366,11 @@ mod test {
         assert_eq!(157, factions["halflings"].vp);
 
         let message = notification_message(&game)?;
-        assert_eq!("Final Scores:\n\nhalflings: 157\nmermaids: 127\nengineers: 126\nalchemists: 105", message.as_ref().unwrap());
+        assert_eq!(
+            "Final Scores:\n\nhalflings: 157\nmermaids: 127\nengineers: 126\nalchemists: 105",
+            message.as_ref().unwrap()
+        );
 
         Ok(())
     }
 }
-
